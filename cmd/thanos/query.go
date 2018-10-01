@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"gopkg.in/alecthomas/kingpin.v2"
 	"github.com/improbable-eng/thanos/pkg/discovery"
+	"sync"
 )
 
 // registerQuery registers a query command.
@@ -241,7 +242,7 @@ func runQuery(
 		return errors.Wrap(err, "building gRPC client")
 	}
 
-	addrFromFileSD := map[string][]string{}
+	addrFromFileSD := newFileSDAddrs()
 
 	var (
 		stores = query.NewStoreSet(
@@ -258,7 +259,9 @@ func runQuery(
 					specs = append(specs, &gossipSpec{id: id, addr: ps.StoreAPIAddr, peer: peer})
 				}
 
-				for _, addresses := range addrFromFileSD {
+				addrFromFileSD.mtx.Lock()
+				defer addrFromFileSD.mtx.Unlock()
+				for _, addresses := range addrFromFileSD.addrs {
 					for _, addr := range addresses {
 						specs = append(specs, query.NewGRPCStoreSpec(addr))
 					}
@@ -299,14 +302,15 @@ func runQuery(
 				fileSD.Run(ctx, fileSDUpdates)
 				return nil
 			}, func(error) {
-				ctx.Done()
+				cancel()
 			})
 
 			g.Add(func() error {
 				for {
 					select {
 						case update := <-fileSDUpdates:
-							addrFromFileSD[update.Source] = update.Services
+							// TODO(ivan): resolve dns here maybe?
+							addrFromFileSD.update(update.Source, update.Services)
 							stores.Update(ctx)
 						case <-ctx.Done():
 							return nil
@@ -393,6 +397,23 @@ type gossipSpec struct {
 	addr string
 
 	peer *cluster.Peer
+}
+
+type fileSDAddrs struct {
+	addrs map[string][]string
+	mtx sync.Mutex
+}
+
+func newFileSDAddrs() *fileSDAddrs {
+	return &fileSDAddrs{
+		addrs: make(map[string][]string),
+	}
+}
+
+func (f *fileSDAddrs) update(source string, addrs []string) {
+	f.mtx.Lock()
+	defer f.mtx.Unlock()
+	f.addrs[source] = addrs
 }
 
 func (s *gossipSpec) Addr() string {
