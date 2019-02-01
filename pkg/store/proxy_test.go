@@ -8,6 +8,7 @@ import (
 
 	"github.com/fortytw2/leaktest"
 	"github.com/gogo/protobuf/proto"
+	"github.com/improbable-eng/thanos/pkg/component"
 	"github.com/improbable-eng/thanos/pkg/store/storepb"
 	"github.com/improbable-eng/thanos/pkg/testutil"
 	"github.com/pkg/errors"
