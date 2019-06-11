@@ -4,6 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/go-kit/kit/log/level"
+	"github.com/improbable-eng/thanos/pkg/ui"
+	"github.com/prometheus/common/route"
+	"net"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -53,6 +58,7 @@ func registerBucket(m map[string]setupFunc, app *kingpin.Application, name strin
 	registerBucketVerify(m, cmd, name, objStoreConfig)
 	registerBucketLs(m, cmd, name, objStoreConfig)
 	registerBucketInspect(m, cmd, name, objStoreConfig)
+	registerBucketWeb(m, cmd, name, objStoreConfig)
 	return
 }
 
@@ -289,6 +295,62 @@ func registerBucketInspect(m map[string]setupFunc, root *kingpin.CmdClause, name
 
 		return printTable(blockMetas, selectorLabels, *sortBy)
 	}
+}
+
+func registerBucketWeb(m map[string]setupFunc, root *kingpin.CmdClause, name string, objStoreConfig *pathOrContent) {
+	cmd := root.Command("web", "Inspect your buckets in a web UI")
+	httpBindAddr := regHTTPAddrFlag(cmd)
+	webRoutePrefix := cmd.Flag("web.route-prefix", "Prefix for API and UI endpoints. This allows thanos UI to be served on a sub-path. This option is analogous to --web.route-prefix of Promethus.").Default("").String()
+	webExternalPrefix := cmd.Flag("web.external-prefix", "Static prefix for all HTML links and redirect URLs in the UI query web interface. Actual endpoints are still served on / or the web.route-prefix. This allows thanos UI to be served behind a reverse proxy that strips a URL sub-path.").Default("").String()
+	webPrefixHeaderName := cmd.Flag("web.prefix-header", "Name of HTTP request header used for dynamic prefixing of UI links and redirects. This option is ignored if web.external-prefix argument is set. Security risk: enable this option only if a reverse proxy in front of thanos is resetting the header. The --web.prefix-header=X-Forwarded-Prefix option can be useful, for example, if Thanos UI is served via Traefik reverse proxy with PathPrefixStrip option enabled, which sends the stripped prefix value in X-Forwarded-Prefix header. This allows thanos UI to be served on a sub-path.").Default("").String()
+
+	m[name+" web"] = func(g *run.Group, logger log.Logger, reg *prometheus.Registry, _ opentracing.Tracer, _ bool) error {
+		return runBucketWeb(g, logger, reg, *httpBindAddr, *webRoutePrefix, *webExternalPrefix, *webPrefixHeaderName)
+	}
+}
+
+func runBucketWeb(g *run.Group, logger log.Logger,
+	reg *prometheus.Registry,  httpBindAddr string,
+	webRoutePrefix string,
+	webExternalPrefix string,
+	webPrefixHeaderName string) error {
+	router := route.New()
+	if webRoutePrefix != "" {
+		router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, webRoutePrefix, http.StatusFound)
+		})
+	}
+
+	flagsMap := map[string]string{
+		// TODO(bplotka in PR #513 review): pass all flags, not only the flags needed by prefix rewriting.
+		"web.external-prefix": webExternalPrefix,
+		"web.prefix-header":   webPrefixHeaderName,
+	}
+
+	ui.NewBucketUI(logger, flagsMap).Register(router.WithPrefix(webRoutePrefix))
+	router.Get("/-/healthy", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := fmt.Fprintf(w, "Thanos Bucket Web is Healthy.\n"); err != nil {
+			level.Error(logger).Log("msg", "Could not write health check response.")
+		}
+	})
+	mux := http.NewServeMux()
+	registerMetrics(mux, reg)
+	registerProfile(mux)
+	mux.Handle("/", router)
+
+	l, err := net.Listen("tcp", httpBindAddr)
+	if err != nil {
+		return errors.Wrapf(err, "listen HTTP on address %s", httpBindAddr)
+	}
+
+	g.Add(func() error {
+		level.Info(logger).Log("msg", "Listening for UI", "address", httpBindAddr)
+		return errors.Wrap(http.Serve(l, mux), "serve bucket web")
+	}, func(error) {
+		runutil.CloseWithLogOnErr(logger, l, "bucket web")
+	})
+	return nil
 }
 
 func printTable(blockMetas []*metadata.Meta, selectorLabels labels.Labels, sortBy []string) error {
