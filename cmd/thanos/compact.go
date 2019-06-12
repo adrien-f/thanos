@@ -171,7 +171,16 @@ func runCompact(
 		return err
 	}
 
-	bkt, err := client.NewBucket(logger, confContentYaml, reg, component)
+	configs, err := client.NewBucketConfigs(confContentYaml)
+	if err != nil {
+		return errors.Wrap(err, "error parsing bucket configurations")
+	}
+
+	if len(configs) != 1 {
+		return errors.Errorf("expecting one bucket configuration, got %d", len(configs))
+	}
+
+	bkt, err := client.NewBucket(logger, configs[0], reg, component)
 	if err != nil {
 		return err
 	}

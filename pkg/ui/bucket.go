@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/improbable-eng/thanos/pkg/objstore/client"
 	"html/template"
 	"net/http"
 	"path"
@@ -13,12 +14,14 @@ import (
 type BucketUI struct {
 	*BaseUI
 	flagsMap map[string]string
+	buckets  []client.BucketConfig
 }
 
-func NewBucketUI(logger log.Logger, flagsMap map[string]string) *BucketUI {
+func NewBucketUI(logger log.Logger, flagsMap map[string]string, buckets []client.BucketConfig) *BucketUI {
 	return &BucketUI{
 		BaseUI:   NewBaseUI(logger, "bucket_menu.html", bucketTmplFuncs()),
 		flagsMap: flagsMap,
+		buckets:  buckets,
 	}
 }
 

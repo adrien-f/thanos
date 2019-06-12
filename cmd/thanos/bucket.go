@@ -77,7 +77,16 @@ func registerBucketVerify(m map[string]setupFunc, root *kingpin.CmdClause, name 
 			return err
 		}
 
-		bkt, err := client.NewBucket(logger, confContentYaml, reg, name)
+		configs, err := client.NewBucketConfigs(confContentYaml)
+		if err != nil {
+			return errors.Wrap(err, "error parsing bucket configurations")
+		}
+
+		if len(configs) != 1 {
+			return errors.Errorf("expecting one bucket configuration, got %d", len(configs))
+		}
+
+		bkt, err := client.NewBucket(logger, configs[0], reg, name)
 		if err != nil {
 			return err
 		}
@@ -88,14 +97,21 @@ func registerBucketVerify(m map[string]setupFunc, root *kingpin.CmdClause, name 
 			return err
 		}
 
-		var backupBkt objstore.Bucket
-		if len(backupconfContentYaml) == 0 {
-			if *repair {
-				return errors.New("repair is specified, so backup client is required")
+		var (
+			backupConfigs []client.BucketConfig
+			backupBkt     objstore.Bucket
+		)
+
+		if *repair {
+			backupConfigs, err = client.NewBucketConfigs(backupconfContentYaml)
+			if err != nil {
+				return errors.Wrap(err, "error parsing backup bucket configurations")
 			}
-		} else {
+			if len(backupConfigs) != 1 {
+				return errors.Errorf("expecting one backup bucket configuration, got %d", len(configs))
+			}
 			// nil Prometheus registerer: don't create conflicting metrics
-			backupBkt, err = client.NewBucket(logger, backupconfContentYaml, nil, name)
+			backupBkt, err = client.NewBucket(logger, backupConfigs[0], nil, name)
 			if err != nil {
 				return err
 			}
@@ -159,7 +175,16 @@ func registerBucketLs(m map[string]setupFunc, root *kingpin.CmdClause, name stri
 			return err
 		}
 
-		bkt, err := client.NewBucket(logger, confContentYaml, reg, name)
+		configs, err := client.NewBucketConfigs(confContentYaml)
+		if err != nil {
+			return errors.Wrap(err, "error parsing bucket configurations")
+		}
+
+		if len(configs) != 1 {
+			return errors.Errorf("expecting one bucket configuration, got %d", len(configs))
+		}
+
+		bkt, err := client.NewBucket(logger, configs[0], reg, name)
 		if err != nil {
 			return err
 		}
@@ -260,7 +285,16 @@ func registerBucketInspect(m map[string]setupFunc, root *kingpin.CmdClause, name
 			return err
 		}
 
-		bkt, err := client.NewBucket(logger, confContentYaml, reg, name)
+		configs, err := client.NewBucketConfigs(confContentYaml)
+		if err != nil {
+			return errors.Wrap(err, "error parsing bucket configurations")
+		}
+
+		if len(configs) != 1 {
+			return errors.Errorf("expecting one bucket configuration, got %d", len(configs))
+		}
+
+		bkt, err := client.NewBucket(logger, configs[0], reg, name)
 		if err != nil {
 			return err
 		}
@@ -305,15 +339,28 @@ func registerBucketWeb(m map[string]setupFunc, root *kingpin.CmdClause, name str
 	webPrefixHeaderName := cmd.Flag("web.prefix-header", "Name of HTTP request header used for dynamic prefixing of UI links and redirects. This option is ignored if web.external-prefix argument is set. Security risk: enable this option only if a reverse proxy in front of thanos is resetting the header. The --web.prefix-header=X-Forwarded-Prefix option can be useful, for example, if Thanos UI is served via Traefik reverse proxy with PathPrefixStrip option enabled, which sends the stripped prefix value in X-Forwarded-Prefix header. This allows thanos UI to be served on a sub-path.").Default("").String()
 
 	m[name+" web"] = func(g *run.Group, logger log.Logger, reg *prometheus.Registry, _ opentracing.Tracer, _ bool) error {
-		return runBucketWeb(g, logger, reg, *httpBindAddr, *webRoutePrefix, *webExternalPrefix, *webPrefixHeaderName)
+		confContentYaml, err := objStoreConfig.Content()
+		if err != nil {
+			return err
+		}
+
+		configs, err := client.NewBucketConfigs(confContentYaml)
+		if err != nil {
+			return errors.Wrap(err, "error parsing bucket configurations")
+		}
+		return runBucketWeb(g, logger, reg, configs, *httpBindAddr, *webRoutePrefix, *webExternalPrefix, *webPrefixHeaderName)
 	}
 }
 
-func runBucketWeb(g *run.Group, logger log.Logger,
-	reg *prometheus.Registry,  httpBindAddr string,
+func runBucketWeb(g *run.Group,
+	logger log.Logger,
+	reg *prometheus.Registry,
+	configs []client.BucketConfig,
+	httpBindAddr string,
 	webRoutePrefix string,
 	webExternalPrefix string,
-	webPrefixHeaderName string) error {
+	webPrefixHeaderName string,
+) error {
 	router := route.New()
 	if webRoutePrefix != "" {
 		router.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -327,7 +374,7 @@ func runBucketWeb(g *run.Group, logger log.Logger,
 		"web.prefix-header":   webPrefixHeaderName,
 	}
 
-	ui.NewBucketUI(logger, flagsMap).Register(router.WithPrefix(webRoutePrefix))
+	ui.NewBucketUI(logger, flagsMap, configs).Register(router.WithPrefix(webRoutePrefix))
 	router.Get("/-/healthy", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if _, err := fmt.Fprintf(w, "Thanos Bucket Web is Healthy.\n"); err != nil {

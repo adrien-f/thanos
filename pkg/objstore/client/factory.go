@@ -33,15 +33,19 @@ type BucketConfig struct {
 	Config interface{} `yaml:"config"`
 }
 
-// NewBucket initializes and returns new object storage clients.
+// NewBucketConfigs parse a YAML string for buckets configurations
 // NOTE: confContentYaml can contain secrets.
-func NewBucket(logger log.Logger, confContentYaml []byte, reg prometheus.Registerer, component string) (objstore.Bucket, error) {
-	level.Info(logger).Log("msg", "loading bucket configuration")
-	bucketConf := &BucketConfig{}
+func NewBucketConfigs(confContentYaml []byte) ([]BucketConfig, error) {
+	bucketConf := &[]BucketConfig{}
 	if err := yaml.UnmarshalStrict(confContentYaml, bucketConf); err != nil {
-		return nil, errors.Wrap(err, "parsing config YAML file")
+		return nil, errors.Wrap(err, "parsing config YAML string")
 	}
+	return *bucketConf, nil
+}
 
+// NewBucket initializes and returns new object storage clients.
+func NewBucket(logger log.Logger, bucketConf BucketConfig, reg prometheus.Registerer, component string) (objstore.Bucket, error) {
+	level.Info(logger).Log("msg", "loading bucket configuration")
 	config, err := yaml.Marshal(bucketConf.Config)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal content of bucket configuration")

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -114,7 +115,6 @@ func regCommonObjStoreFlags(cmd *kingpin.CmdClause, suffix string, required bool
 	}
 }
 
-
 func regCommonTracingFlags(app *kingpin.Application) *pathOrContent {
 	fileFlagName := fmt.Sprintf("tracing.config-file")
 	contentFlagName := fmt.Sprintf("tracing.config")
@@ -133,4 +133,14 @@ func regCommonTracingFlags(app *kingpin.Application) *pathOrContent {
 		path:    tracingConfFile,
 		content: tracingConf,
 	}
+}
+
+func ObjstoreConfig(s Settings) (target *http.Header) {
+	target = &http.Header{}
+	s.SetValue((*HTTPHeaderValue)(target))
+	return
+}
+
+func regMultipleObjStoreFlags(cmd *kingpin.CmdClause, suffix string, required bool, extraDesc ...string) *pathOrContent {
+
 }
