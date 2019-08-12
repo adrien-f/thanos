@@ -1,6 +1,6 @@
 {
   "title": "Interactive Thanos Deployment for Global View and HA of Prometheus Servers",
-  "description": "...",
+  "description": "In this scenario, we'll learn how to launch a Prometheus with a Thanos Sidecar and having a global view with Thanos Query.",
   "details": {
     "steps": [
       {
@@ -24,7 +24,9 @@
     }
   },
   "environment": {
-    "uilayout": "editor-terminal"
+    "uilayout": "editor-terminal",
+    "showdashboard": true,
+    "dashboards": [{"name": "Prometheus US1", "port": 9090}, {"name": "Prometheus EU1", "port": 9091}, {"name": "Thanos Query", "port": 19090}]
   },
   "backend": {
     "imageid": "docker"
